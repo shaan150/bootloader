@@ -43,7 +43,7 @@ cons_writeline:
     call    cons_write_crlf
     ret    
 
-# Output the 16-bit value in BX to the screen has a 4 digit hex value	
+# Output the 16-bit value in BX to the screen as a 4 digit hex value	
 #
 # Input:  BX = Value to output	
 
