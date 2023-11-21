@@ -100,6 +100,7 @@ boot_device:
 #  8          4     lower 32-bits of 48-bit starting LBA (starting from 0)
 #  12         4     upper 16-bits of 48-bit starting LBA (will always be 0 for us)
 
+
 disk_address_packet:
     .byte   0x10
     .byte   0
