@@ -5,36 +5,25 @@
 # This code is linked to assume a starting address of 0x7C00 which is where the BIOS
 # will load a boot segment.
 
-# Constants
-.set SECTOR_SIZE, 512
-.set BYTES_PER_LINE, 16
-.set LINES_PER_PAUSE, 16
-.set OFFSET_DISPLAY, 7
-.set SECTORS_PER_TRACK, 18
-.set HEADS, 2
-.set BYTES_PER_LINE, 16
-.set LINES_PER_PAUSE, 16
+.code16                         # Assemble for 16-bit mode. This directive ensures the code is treated as 16-bit for real-mode execution.
 
-.code16                         # Assemble for 16-bit mode
-.globl start
+.globl start                    # Declare 'start' as a global symbol so that it's visible to the linker.
 
 start:
-    jmp     real_start
-
+    jmp     real_start          # Jump to the real_start label to begin execution.
 
 real_start:
-    movb    %dl, (boot_device) # Boot device number is passed in DL from BIOS. Save it here since DL might get trashed
+    movb    %dl, (boot_device)  # Boot device number is passed in DL from BIOS. Save it to 'boot_device' since DL might get overwritten later.
 
-    movw    $boot_message, %si  # Display our boot message
-    call    cons_writeline
+    movw    $boot_message, %si  # Load the address of the 'boot_message' string into SI.
+    call    cons_writeline       # Call the 'cons_writeline' routine to print the boot message.
 
-    movw    $booted_from_msg, %si
-    call    cons_write
+    movw    $booted_from_msg, %si # Load the address of the 'booted_from_msg' string into SI.
+    call    cons_write           # Call the 'cons_write' routine to print the "booted from" message.
 
-    movb    (boot_device), %dl
-    cmp     $0x80, %dl
-    jge     harddrive
-
+    movb    (boot_device), %dl  # Reload the boot device number into DL from the 'boot_device' memory location.
+    cmp     $0x80, %dl          # Compare DL with 0x80. This checks if the boot device is a hard drive (0x80 and above are hard drives).
+    jge     harddrive           # If DL is greater or equal to 0x80, jump to the 'harddrive' label (to handle hard drive specific boot actions).
 
 # Write to the console using BIOS.
 # 
@@ -54,8 +43,7 @@ cons_write_rpt:
 cons_write_done:                # Something that is called will never return 
     ret                         # until a 'ret' instruction is encountered.  Labels do 
                                 # not give a program any structure.  They just give a 
-                                # memory location a name that we can use in our code. 
-
+                                # memory location a name that we can use in our code.
 cons_write_crlf:
     movb    $0x0e, %ah          # Output CR
     movb    $0x0d, %al
@@ -76,7 +64,6 @@ cons_writeline:
 HexChars:	.ascii "0123456789ABCDEF"
 
 cons_write_hex:
-	movw	$4, %cx
     movb    $0x0E, %ah
 	
 hexloop:
@@ -111,32 +98,32 @@ getdigit:
 	ret
 
 harddrive:
-    movw    $hd, %si
-    call   cons_writeline
-    call   get_starting_sector
-    call   get_num_sectors         # Read sectors from disk
-    call   read_sectors
-    jmp    endless_loop
+    movw    $hd, %si                 # Load the address of 'hd' message into SI.
+    call    cons_writeline           # Call to display the 'hd' message.
+    call    get_starting_sector      # Call routine to get the starting sector from the user.
+    call    get_num_sectors          # Call routine to get the number of sectors to read from the user.
+    call    read_sectors             # Call routine to read the specified sectors from the disk.
+    jmp     endless_loop             # Jump into an endless loop after the operations are complete.
 
 get_starting_sector:
-    movw    $prompt_start_sector, %si
-    call    cons_write
-    movb    $4, max_input_amount
-    call    get_input
-    call    convert_input_to_int
-    movw    %ax, start_sector
+    movw    $prompt_start_sector, %si # Load the address of the 'prompt_start_sector' message into SI.
+    call    cons_write               # Display the prompt for starting sector.
+    movb    $4, max_input_amount     # Set the maximum input amount to 4 (bytes/characters).
+    call    get_input                # Call routine to read user input.
+    call    convert_input_to_int     # Call routine to convert the user input to an integer.
+    movw    %ax, start_sector        # Store the converted integer in 'start_sector'.
 
-    ret
+    ret                              # Return from the 'get_starting_sector' routine.
     
 get_num_sectors:
-    movw    $prompt_num_sectors, %si
-    call    cons_write
-    movb    $4, max_input_amount
-    call    get_input
-    call    convert_input_to_int
-    movw    %ax, num_sectors
+    movw    $prompt_num_sectors, %si  # Load the address of 'prompt_num_sectors' message into SI.
+    call    cons_write               # Display the prompt for number of sectors.
+    movb    $4, max_input_amount     # Set the maximum input amount to 4 (bytes/characters).
+    call    get_input                # Call routine to read user input.
+    call    convert_input_to_int     # Call routine to convert the user input to an integer.
+    movw    %ax, num_sectors         # Store the converted integer in 'num_sectors'.
 
-    ret
+    ret                              # Return from the 'get_num_sectors' routine.
 
 get_input:
     movw    $input_buffer, %si
@@ -254,183 +241,173 @@ cons_write_sector:
     movw    current_sector, %bx
     call    cons_write_int            # Display the value in %bx
     call    cons_write_crlf
+    call    cons_write_crlf
     movw    $disk_address_packet, %si # Point %si to disk_address_packet
     ret
 
 read_sectors:
-    xor     %bx, %bx     # Clear the %bx register
+    xor     %bx, %bx                   # Clear BX register. BX is used later for addressing.
+    movw    $128, byte_count            # Set byte_count to 64. This represents the number of bytes to process.
+    movw    $16, line_bytes            # Set line_bytes to 16. This is likely the number of bytes per line to display.
 
-    movw    start_sector, %ax            # moves the value of start_sector into AX
-    movw    %ax, current_sector         # moves the value of AX into current_sector
-    call    cons_write_sector           # Displays the current sector 
-    movw    num_sectors, %ax              # moves the value of num_sectors into AX
-    add     start_sector, %ax            # Set the number of blocks to read to be num_sectors plus start_sector
-    movw    %ax, 2(%si)                # Moves the value of AX into the 2nd byte of the disk address packet
-    movw    $0xD000, 4(%si)           # Set the adddress to read into to be 0xD0001
+    movw    start_sector, %ax          # Load the starting sector number into AX.
+    movw    %ax, current_sector        # Store the starting sector number in current_sector.
+    call    cons_write_sector          # Call routine to display the current sector.
+    movw    start_sector, %ax           # Load the number of sectors to read into AX.
+    movw    %ax, 2(%si)                # Store the calculated value (start sector + num sectors) into the disk address packet.
     
-    movw    current_sector, %bx         # moves the value of current_sector into BX
-    movw    %bx, 8(%si)                # moves the value of BX into the 8th byte of the disk address packet
+    add     num_sectors, %ax          # Add the starting sector to the number of sectors.
+    movw    %ax, total_sectors         # Store the calculated value (start sector + num sectors) into the total_sectors variable.
+    movw    $0xD000, 4(%si)            # Set the memory address to read data into as 0xD000.
+
+    movw    current_sector, %bx        # Load current_sector value into BX for addressing.
+    movw    %bx, 8(%si)                # Store the current sector value into the disk address packet.
 
 read_sectors_loop:
+    movw    byte_count, %cx            # Load byte_count into CX for loop control.
+    cmp     $0, %cx                    # Compare CX with 0 to check if all bytes are processed.
+    jz      read_sectors_pause         # If CX is 0, jump to read_sectors_pause to handle pause logic.
 
-    movw    current_byte, %bx            # Moves the value of current_byte into BX
-    test    $0x3F, %bx                   # Test the lower 6 bits of BX (i.e. is the current_byte a multiple of 64)
-    jz      read_sectors_pause           # If the lower 6 bits are zero, pause
-
-    movw    line_bytes, %bx            # Moves the value of current_byte into BX
-    cmp     $0, %bx
-    je      display_line_content         # If the lower 4 bits are zero, display the line    
+    movw    line_bytes, %bx            # Load the number of line bytes into BX.
+    cmp     $0, %bx                    # Compare BX with 0 to check if a line is complete.
+    je      display_line_content       # If BX is 0, jump to display_line_content to output the line.
 
 read_sectors_read:
-    
-    movw    current_sector, %bx         # moves the value of current_sector into BX
-    movw    %bx, 8(%si)                # moves the value of BX into the 8th byte of the disk address packet
+    movw    current_sector, %bx        # Load the current sector number into BX.
+    movw    %bx, 8(%si)                # Store the current sector number in the disk address packet for LBA addressing.
 
-    movb    $0x42, %ah                # 0x42 is the int 13h BIOS function to read the disk using LBA addressing
-	movb	(boot_device), %dl        # Retrieve the ID of our boot device and put in DL	
-    int     $0x13                     # Read the disk
-    jc      read_failed	              # The carry flag will be set if an error occured
+    movb    $0x42, %ah                 # Set AH to 0x42, selecting the INT 13h BIOS function for LBA disk read.
+    movb    (boot_device), %dl         # Load the boot device ID into DL for the disk read function.
+    int     $0x13                      # Call BIOS interrupt 0x13 to read from the disk.
+    jc      read_failed                # If the carry flag is set, an error occurred; jump to the error handling label.
 
-    incw    current_byte              # Increment the current_byte counter
-    decw    line_bytes                # Increment the line_bytes counter
+    incw    current_byte               # Increment the current_byte counter, tracking the current byte position.
+    decw    line_bytes                 # Decrement the line_bytes counter, tracking the remaining bytes in the current line.
+    decw    byte_count                 # Decrement the byte_count, counting down the total bytes left to read.
 
-    jmp     read_sectors_loop         # Repeat the loop
+    jmp     read_sectors_loop          # Loop back to continue reading and processing the next sector.
+
 
 read_sectors_done:
-    movw    $prompt_finished, %si
-    call    cons_writeline
-    jmp     endless_loop
-    ret
+    call    cons_write_crlf             # Call routine to write a carriage return and line feed (CRLF) to the console.
+    movw    $prompt_finished, %si       # Load the address of the 'prompt_finished' message into SI.
+    call    cons_writeline              # Call routine to write the 'prompt_finished' message to the console.
+    jmp     endless_loop                # Jump to an endless loop, likely to halt the bootloader.
+    ret                                 # Return from the routine, though this is likely never reached due to the jump.
 
-read_sectors_pause: 
-    cmp     $0, current_byte
-    je      read_sectors_continue
-    
-    call    cons_write_crlf
-    movw    $prompt_continue, %si
-    call    cons_writeline
-    movw    $disk_address_packet, %si # Point %si to disk_address_packet
-    movb    $0x00, %ah
-    int     $0x16
+read_sectors_pause:
+    call    cons_write_crlf             # Call routine to write CRLF to the console.
+    movw    $prompt_continue, %si       # Load the address of the 'prompt_continue' message into SI.
+    call    cons_writeline              # Call routine to write the 'prompt_continue' message to the console.
+    call    cons_write_crlf             # Call routine to write another CRLF to the console.
+    movw    $disk_address_packet, %si   # Load the address of the 'disk_address_packet' into SI.
+    movb    $0x00, %ah                  # Set AH to 0x00 for INT 16h function (keyboard input).
+    int     $0x16                       # Call INT 16h to wait for a key press.
 
 read_sectors_continue:
-    movw    current_byte, %bx
-    cmp     $512, %bx
-    je      next_sector
+    movw    current_byte, %bx           # Load the value of 'current_byte' into BX.
+    cmp     $512, %bx                   # Compare BX to 512 (the size of a sector in bytes).
+    je      next_sector                 # If equal, jump to 'next_sector' to handle the next sector.
 
-    incw    current_byte
+    movw    $128, byte_count             # Reset 'byte_count' to 128, preparing for the next read.
 
-    jmp     read_sectors_loop
+    jmp     read_sectors_loop           # Jump back to the main read loop.
 
 next_sector:
-    movw    current_sector, %bx
-    movw    start_sector, %ax
-    addw    num_sectors, %ax
-    cmp     %bx, %ax
-    jge     read_sectors_done
+    movw    current_sector, %bx     # Load the current sector number into BX.
+    movw    total_sectors, %ax      # Load the total number of sectors into AX.
+    cmpw    %ax, %bx               # Compare the current sector with the end sector (start sector + number of sectors).
+    je      read_sectors_done      # If the current sector is greater or equal, all sectors have been processed; jump to completion.
+    
+    incw    current_sector         # Increment the current_sector counter.
+    call    cons_write_sector      # Call routine to display the current sector number.
+    movw    $0, current_byte       # Reset current_byte to 1, starting the new sector.
+    movw    $16, line_bytes        # Reset line_bytes to 16, preparing for the new sector.
 
-    call    cons_write_sector
-    movw    $1, current_byte
-    movw    $16, line_bytes
-    incw    current_sector
-    jmp     read_sectors_loop  
-
+    jmp     read_sectors_loop      # Jump back to the main read sectors loop.
 
 read_failed:
-    xor     %si, %si
-    movw 	$prompt_disk_error, %si
-    call    cons_write                      # Display error messages
-    xor     %bx, %bx                # Clear the %bx register
-    movb    %ah, %bl
-    call    cons_write_hex          # Call the subroutine to print the error code in hexadecimal
-    call    cons_write_crlf         # Print a new line
-	
-    jmp     endless_loop
-
-display_line_content:
-    cmp     $0, current_byte
-    je      read_sectors_read
-
-    movw    4(%si), %di          # Load the address to read into (stored at 4(%si)) into %si
-
-    movw    current_byte, %dx            # bytes per line
-    # subtract 16 from %dx to get the offset
-    subw    $16, %dx  
-    add     %dx, %di            # Add this offset to %di
-
-    call    display_offset       # Display the offset
-    movw    $16, %cx            # Set CX to 16 (number of bytes to display)
-
-    call   display_line_loop
-    ret  
+    xor     %si, %si               # Clear SI register.
+    movw    $prompt_disk_error, %si # Load the address of the disk error prompt into SI.
+    call    cons_write             # Display the disk error message.
+    xor     %bx, %bx               # Clear BX register.
+    movb    %ah, %bl               # Move the error code (in AH) to BL for display.
+    call    cons_write_hex         # Call subroutine to print the error code in hexadecimal.
+    call    cons_write_crlf        # Print a new line (carriage return and line feed).
+    jmp     endless_loop           # Jump to an endless loop, indicating a halt after an error.
 
 display_offset:
-    movw    %dx, %bx
-    call    cons_write_hex
+    movw    $4, %cx                # Set CX to 4, indicating the number of bytes for the offset display.
+    movw    %dx, %bx               # Move the current byte offset into BX.
+    call    cons_write_hex         # Call subroutine to display the offset in hexadecimal.
+    movb    $0x20, %al             # Load the ASCII code for space into AL.
+    call    display_char           # Call routine to display a space character.
+
+    ret                            # Return from the display_offset routine.
+
+display_line_content:
+    cmp     $0, current_byte       # Check if current_byte is 0.
+    je      read_sectors_read      # If so, jump to read the next sector.
+
+    movw    4(%si), %di            # Load the memory address to read from (stored at 4(%si)) into DI.
+    movw    current_byte, %dx      # Load the current_byte value into DX.
+    subw    $16, %dx               # Subtract 16 from DX to calculate the offset.
+    add     %dx, %di               # Add the offset to DI.
+    call    display_offset         # Call subroutine to display the offset.
+
+    movw    $16, %dx               # Reset DX to 16, preparing for the next line.
+
+
+display_hex_line_loop:
+    cmp    $0, %dx                  # Compare DX with 0 to check if the end of the line is reached.
+    je     display_hex_done         # If DX is 0, jump to display_hex_done, indicating the end of the hexadecimal line display.
+
+    call   cons_write_hex_byte      # Call routine to write a single hexadecimal byte.
+    inc    %di                      # Increment DI to move to the next byte in memory.
+    dec    %dx                      # Decrement DX, counting down the number of bytes to display in this line.
+    jmp    display_hex_line_loop    # Loop back to continue displaying the line in hexadecimal.
+
+
+display_hex_done:
+    movw    $16, %dx
+    subw    $16, %di
+
+display_ascii_line_loop:
+    cmp    $0, %dx                  # Compare DX with 0 to check if the end of the line is reached.
+    je     display_line_done        # If DX is 0, jump to display_line_done, indicating the end of the ASCII line display.
+
+    movb    (%di), %al       # Move lower byte of DI to AL
+    cmpb    $32, %al       # Compare AL with 32
+    jge     cons_write_ascii       # If AL >= 32, jump to display
+
+    movb    $95, %al       # Otherwise, load ASCII code for underscore into AL
+    call    display_char   # Display the character in AL
+
+display_ascii_line_continue:
+    inc     %di                 # Add 1 to the value in SI
+    dec     %dx               # Add 1 to the value in DX
+    jmp    display_ascii_line_loop  # Repeat the loop 
+
+
+display_line_done:
+    call    cons_write_crlf
+    movw    $16, line_bytes      # Reset the line_bytes counter
+    movw    $disk_address_packet, %si
+    jmp     read_sectors_loop
+    ret
+
+cons_write_ascii:
+    call display_char
+    jmp display_ascii_line_continue
+    
+    
+cons_write_hex_byte:
+    movw    $2, %cx             # Set CX to 2 (number of bytes to display)
+    movb    (%di), %al          # Load the byte at the location contained in the SI register into AL   
+    call    cons_write_hex      # Display the byte in AL as a 2-digit hex value
     movb    $0x20, %al          # ASCII code for space
     call    display_char
     ret
-
-
-display_line_loop:
-    call    cons_write_hex_byte     # Display the byte in AL as a 2-digit hex value
-
-    inc     %di                 # Add 1 to the value in SI
-    dec     %cx               # Add 1 to the value in DX
-    loop    display_line_loop   # Repeat the loop
-
-display_line_done:
-    call    cons_write_crlf     # Display a new line
-    movw    $16, line_bytes      # Reset the line_bytes counter
-    movw    $disk_address_packet, %si
-    jmp     read_sectors_read
-    ret
-
-# Assume %al contains the byte to be displayed
-cons_write_hex_byte:
-
-    movb    (%di), %al          # Load the byte from memory into %al
-    test    %al, %al            # Test if the byte is null (end of string)
-    jz      display_line_done   # If null, conversion is done
-
-    movb    %al, %bx         # Load the byte from memory into %bl
-    # Display upper nibble
-    call    upper_nibble_to_ascii
-
-    # Display upper nibble
-    call    lower_nibble_to_ascii
-
-    # Use cx to count down from 16 to 0
-   
-    # Display a space
-    movb    $0x20, %al          # ASCII code for space
-    call    display_char        # Output the space character
-    ret
-
-upper_nibble_to_ascii:
-    movb    %bl, %al
-    shr     $4, %al             # Shift right to get the upper 4 bits
-    and     $0x0F, %al          # Isolate lower 4 bits
-    call    hex_char_to_ascii   # Convert to ASCII and display
-    ret
-
-lower_nibble_to_ascii:
-    movb    %bl, %al
-    and     $0x0F, %al          # Isolate lower 4 bits
-    call    hex_char_to_ascii   # Convert to ASCII and display
-    ret
-    
-# Subroutine to convert a 4-bit value in %al to its ASCII hex character and display it
-hex_char_to_ascii:
-
-    cmp     $10, %al            # Compare with 10
-    jb      digit               # If less than 10, it's a digit
-
-    add     $55, %al            # Convert A-F to ASCII ('A' is 65 in ASCII, 65-10 = 55)
-    jmp     display_char
-
-digit:
-    add     $48, %al            # Convert 0-9 to ASCII ('0' is 48 in ASCII)
 
 display_char:
     movb    $0x0e, %ah          # BIOS teletype service
@@ -476,14 +453,14 @@ prompt_finished: .string "Finished reading sectors."
 start_sector: .word 0x0000 # Allocates 2 bytes, initialized to 0
 line_bytes: .word 0x0000 # Allocates 2 bytes, initialized to 0
 current_byte: .word 0x0000  
-total_bytes: .word 0x0000  
+byte_count: .word 0x0000  
 num_sectors: .word 0x0000 # Allocates 2 bytes, initialized to 0
 current_sector: .word 0x0000 # Allocates 2 bytes, initialized to 0
+total_sectors: .word 0x0000 # Allocates 2 bytes, initialized to 0
 
 input_buffer: .space 5, 0
 max_input_amount: .byte 0
 input_length: .byte 0
-read_buffer: .space 512 
 
 # Program data
 
