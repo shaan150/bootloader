@@ -296,7 +296,6 @@ read_sectors_done:
     ret                                 # Return from the routine, though this is likely never reached due to the jump.
 
 read_sectors_pause:
-    call    cons_write_crlf             # Call routine to write CRLF to the console.
     movw    $prompt_continue, %si       # Load the address of the 'prompt_continue' message into SI.
     call    cons_writeline              # Call routine to write the 'prompt_continue' message to the console.
     call    cons_write_crlf             # Call routine to write another CRLF to the console.
@@ -399,7 +398,6 @@ display_line_done:
 cons_write_ascii:
     call display_char
     jmp display_ascii_line_continue
-    
     
 cons_write_hex_byte:
     movw    $2, %cx             # Set CX to 2 (number of bytes to display)
