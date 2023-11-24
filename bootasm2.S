@@ -28,6 +28,8 @@ real_start:
 harddrive:
     movw    $hd, %si                 # Load the address of 'hd' message into SI.
     call    cons_writeline           # Call to display the 'hd' message.
+
+get_inputs:
     call    get_starting_sector      # Call routine to get the starting sector from the user.
     call    get_num_sectors          # Call routine to get the number of sectors to read from the user.
     call    read_sectors             # Call routine to read the specified sectors from the disk.
@@ -49,6 +51,9 @@ get_num_sectors:
     movb    $4, max_input_amount     # Set the maximum input amount to 4 (bytes/characters).
     call    get_input                # Call routine to read user input.
     call    convert_input_to_int     # Call routine to convert the user input to an integer.
+    cmpw    $0, %ax                  # Compare the converted integer with 0.
+    je      zero_amount              # If equal, jump to 'zero_amount' to prompt the user to enter a value greater than 0.
+
     movw    %ax, num_sectors         # Store the converted integer in 'num_sectors'.
 
     ret                              # Return from the 'get_num_sectors' routine.
@@ -60,6 +65,11 @@ get_input:
     call    cons_write_crlf
     ret
 
+zero_amount:
+    movw    $prompt_zero_amount, %si
+    call    cons_writeline
+    jmp     get_num_sectors
+
 input_loop:
     movb    $0x00, %ah          # BIOS.GetKeyboardKey
     int     $0x16               # -> AX
@@ -69,6 +79,12 @@ input_loop:
 
     cmp     $0x08, %al          # Check for backspace key
     je      handle_backspace
+
+    cmpb    $'0', %al          # Compare with ASCII '0'
+    jl      invalid_input      # If less, it's not a digit
+
+    cmpb    $'9', %al          # Compare with ASCII '9'
+    jg      invalid_input      # If greater, it's not a digit
 
     # Check if we have reached the maximum input amount
     cmp     $0, %cl             # Check if CL is zero
@@ -88,6 +104,16 @@ input_loop:
     dec     %cl
     
     jmp     input_loop          # Go back to get next character
+
+invalid_input:
+    call    cons_write_char
+    call    cons_write_crlf
+    movw    $prompt_invalid_input, %si   # Load the address of the invalid input prompt
+    call    cons_writeline               # Display the error message
+
+    movw    $input_buffer, %si
+
+    jmp     input_loop                    # Restart input collection
 
 handle_backspace:
     # Check if SI points to start of input_buffer, if so, no characters to delete
@@ -122,14 +148,6 @@ check_input_length:
     # Compare input_length with 0
     cmpb    $0, input_length
     jne     finish_input        # If input_length is not 0, finish input
-
-
-    movb    (%si), %al         # Load the current character into AL
-    cmpb    $'0', %al          # Compare with ASCII '0'
-    jl      invalid_input      # If less, it's not a digit
-
-    cmpb    $'9', %al          # Compare with ASCII '9'
-    jg      invalid_input      # If greater, it's not a digit
 
     # Else, prompt the user to enter a value again
     call    cons_write_crlf
@@ -171,14 +189,6 @@ convert_loop:
 convert_end:
     ret
 
-invalid_input:
-    movw    $prompt_invalid_input, %si   # Load the address of the invalid input prompt
-    call    cons_writeline               # Display the error message
-
-    movw    $input_buffer, %si
-
-    jmp     input_loop                    # Restart input collection
-
 cons_write_sector:
     movw    $prompt_current_sector, %si
     call    cons_write
@@ -189,26 +199,43 @@ cons_write_sector:
     movw    $disk_address_packet, %si # Point %si to disk_address_packet
     ret
 
-read_sectors:
-    xor     %bx, %bx                   # Clear BX register. BX is used later for addressing.
-    movw    $128, byte_count            # Set byte_count to 64. This represents the number of bytes to process.
-    movw    $16, line_bytes            # Set line_bytes to 16. This is likely the number of bytes per line to display.
+read_max_sectors:
+    movw   num_sectors, %ax
+    movw   %ax, actual_num_sectors 
+    movw   $3, num_sectors
 
+
+read_sectors:
+    movw   num_sectors, %ax
+    cmpw   $127, %ax          # Compare the number of sectors to read with 127.
+    jg     read_max_sectors            # If greater or equal, jump to read_max_sectors to set the number of sectors to read to 127.
+
+    movw    start_sector, %bx          # Load the starting sector number into BX
+    movw    num_sectors, %ax          # Add the starting sector to the number of sectors.
+    addw    %bx, %ax                   # This gives the end sector number.
+    movw    %ax, total_sectors         # Store the calculated value (start sector + num sectors) into the total_sectors variable.
+
+    xor     %bx, %bx                   # Clear BX register. BX is used later for addressing.
+    movw    $256, byte_count            # Set byte_count to 64. This represents the number of bytes to process.
+    movw    $16, line_bytes            # Set line_bytes to 16. This is likely the number of bytes per line to display.
+    movw    $0, current_byte           # Set current_byte to 0, starting the new sector.
+    
     movw    start_sector, %ax          # Load the starting sector number into AX.
     movw    %ax, current_sector        # Store the starting sector number in current_sector.
     call    cons_write_sector          # Call routine to display the current sector.
 
-    movw    start_sector, %ax           # Load the number of sectors to read into AX.
+    movw    num_sectors, %ax           # Load the number of sectors to read into AX.
     movw    %ax, 2(%si)       
     
-    add     num_sectors, %ax          # Add the starting sector to the number of sectors.
-    movw    %ax, total_sectors         # Store the calculated value (start sector + num sectors) into the total_sectors variable.
-
     movw    $0xD000, 4(%si)            # Set the memory address to read data into as 0xD000.
 
+    # call    debug
+
 read_sectors_loop:
-    cmp     $0, line_bytes             # Compare line bytes with 0 to check if the end of the line is reached.
-    je      read_sectors_continue      # If equal, jump to read_sectors_continue to handle the next line.
+
+
+    cmp     $0, byte_count             # Compare line bytes with 0 to check if the end of the line is reached.
+    je      read_sectors_pause      # If equal, jump to read_sectors_continue to handle the next line.
 
     movw    current_sector, %bx        # Load the current sector number into BX.
     movw    %bx, 8(%si)                # Store the current sector number in the disk address packet for LBA addressing.
@@ -220,31 +247,20 @@ read_sectors_loop:
 
     movb    (0xD000), %al             # Check that what we loaded is not empty
     cmpb    $0, %al
-    je      read_failed
+    je      read_empty
 
     incw    current_byte               # Increment the current_byte counter, tracking the current byte position.
     decw    byte_count                 # Decrement the byte_count counter, tracking the number of bytes left to process.
     decw    line_bytes                 # Decrement the line_bytes counter, tracking the number of bytes left to display in the current line.
 
-    jmp    read_sectors_loop   # Loop until CX is 0.
-
-
-read_sectors_continue:
-    movw    byte_count, %dx             # Load the value of 'byte_count' into DX.
-    cmp     $0, %dx
-    je      read_sectors_pause
-
-    jmp     display_line_content       # If CX is 0, jump to display_line_content to output the line.
-
-
-read_sectors_done:
-    call    cons_write_crlf             # Call routine to write a carriage return and line feed (CRLF) to the console.
-    movw    $prompt_finished, %si       # Load the address of the 'prompt_finished' message into SI.
-    call    cons_writeline              # Call routine to write the 'prompt_finished' message to the console.
-    jmp     endless_loop                # Jump to an endless loop, likely to halt the bootloader.
-    ret                                 # Return from the routine, though this is likely never reached due to the jump.
+    #call    debug
+    jmp  display_line_content       # Call routine to display the line content.
 
 read_sectors_pause:
+    movw    current_byte, %bx           # Load the value of 'current_byte' into BX.
+    cmp     $512, %bx                   # Compare BX to 512 (the size of a sector in bytes).
+    je      next_sector                 # If equal, jump to 'next_sector' to handle the next sector.
+
     movw    $prompt_continue, %si       # Load the address of the 'prompt_continue' message into SI.
     call    cons_writeline              # Call routine to write the 'prompt_continue' message to the console.
     call    cons_write_crlf             # Call routine to write another CRLF to the console.
@@ -252,28 +268,44 @@ read_sectors_pause:
     movb    $0x00, %ah                  # Set AH to 0x00 for INT 16h function (keyboard input).
     int     $0x16                       # Call INT 16h to wait for a key press.
 
-    movw    current_byte, %bx           # Load the value of 'current_byte' into BX.
-    cmp     $512, %bx                   # Compare BX to 512 (the size of a sector in bytes).
-    je      next_sector                 # If equal, jump to 'next_sector' to handle the next sector.
-
-    movw    $128, byte_count            # Set byte_count to 128. This represents the number of bytes to process.
+    movw    $256, byte_count            # Set byte_count to 128. This represents the number of bytes to process.
 
     jmp     read_sectors_loop           # Jump back to the main read loop.
 
 next_sector:
     movw    current_sector, %bx     # Load the current sector number into BX.
     movw    total_sectors, %ax      # Load the total number of sectors into AX.
+    subw    $1, %ax                 # Subtract 1 from AX to calculate the end sector (total sectors - 1).
     cmpw    %ax, %bx               # Compare the current sector with the end sector (start sector + number of sectors).
     je      read_sectors_done      # If the current sector is greater or equal, all sectors have been processed; jump to completion.
     
     incw    current_sector         # Increment the current_sector counter.
     call    cons_write_sector      # Call routine to display the current sector number.
     movw    $0, current_byte       # Reset current_byte to 1, starting the new sector.
-    movw    $16, %cx                # Reset line_bytes to 16, preparing for the new sector.
-    
-    movw    $128, byte_count            # Set byte_count to 128. This represents the number of bytes to process
+    movw    $16, line_bytes                # Reset line_bytes to 16, preparing for the new sector.
+    decw    actual_num_sectors     # Decrement the actual_num_sectors counter, tracking the number of sectors left to read.
 
-    jmp     read_sectors_loop      # Jump back to the main read sectors loop.
+    jmp     read_sectors_pause      # Jump back to the main read sectors loop.
+
+read_sectors_done:
+    call    cons_write_crlf             # Call routine to write a carriage return and line feed (CRLF) to the console.
+    movw    $prompt_finished, %si       # Load the address of the 'prompt_finished' message into SI.
+    call    cons_writeline              # Call routine to write the 'prompt_finished' message to the console.
+    jmp     get_inputs              # Jump to read_continue to prompt the user to read more sectors.
+
+read_all_sectors:
+    movw    actual_num_sectors, %ax     # Load the number of sectors read into AX.
+    movw    %ax, num_sectors            # Store the number of sectors read into num_sectors.
+
+    jmp     read_sectors
+
+
+read_empty:
+    xor     %si, %si               # Clear SI register.
+    movw    $prompt_empty_sector, %si # Load the address of the disk error prompt into SI.
+    call    cons_writeline             # Display the disk error message.
+
+    jmp     get_inputs
 
 read_failed:
     xor     %si, %si               # Clear SI register.
@@ -285,17 +317,13 @@ read_failed:
     movw    $4, %cx                # Set CX to 4, indicating the number of bytes for the error code display.
     call    cons_write_hex         # Call subroutine to print the error code in hexadecimal.
     call    cons_write_crlf        # Call routine to write a carriage return and line feed (CRLF) to the console.
-    
-    call    get_starting_sector
-    call    get_num_sectors
 
-    jmp     read_sectors
-    ret
+    jmp     get_inputs          # Jump to endless_loop to halt execution.
 
 display_line_content:
 
-    cmp     $0, byte_count             # Compare byte_count with 0 to check if the end of the line is reached.
-    je      read_sectors_loop               # If equal, jump to read_sectors_loop to handle the next sector.
+    cmp     $0, line_bytes             # Compare byte_count with 0 to check if the end of the line is reached.
+    jne     read_sectors_loop               # If equal, jump to read_sectors_loop to handle the next sector.
 
     movw    4(%si), %di            # Load the memory address to read from (stored at 4(%si)) into DI.
 
@@ -308,7 +336,6 @@ display_line_content:
     call    cons_write_hex         # Call subroutine to display the offset in hexadecimal.
     movb    $0x20, %al             # Load the ASCII code for space into AL.
     call    cons_write_char           # Call routine to display a space character.
-
 
     xor     %bx, %bx               # Clear BX.
     movw    $16, line_bytes              # Reset DX to 16, preparing for the next line.
@@ -353,24 +380,52 @@ display_ascii_line_loop:
 
 display_line_done:
     call    cons_write_crlf
-    movw    $16, line_bytes    # Reset the line_bytes counter
     movw    $disk_address_packet, %si
-    jmp     read_sectors_loop
-    ret
+
+    movw    $16, line_bytes
+
+    jmp     read_sectors_loop  # Jump back to the main read sectors loop.
+
 
 endless_loop:                   # Loop forever more
     jmp     endless_loop   
 
 
 debug:
-    movw  4(%si), %di            # Load the memory address to read from (stored at 4(%si)) into DI.
-    movw  $16, %cx               # Set CX to 16, indicating the number of bytes for the offset display.
-    call  cons_write_hex         # Call subroutine to display the offset in hexadecimal.
+    movw  line_bytes, %bx        # Load the number of bytes to display into DX.
+    call  cons_write_int
+    call  cons_write_crlf
+
+    movw  current_byte, %bx      # Load the current_byte value into bx.
+    call  cons_write_int
+    call  cons_write_crlf
+
+    movw  byte_count, %bx        # Load the number of bytes to display into DX.
+    call  cons_write_int
+    call  cons_write_crlf
+
+    movw  current_sector, %bx      # Load the current_byte value into bx.
+    call  cons_write_int
+    call  cons_write_crlf
+
+    movw  total_sectors, %bx        # Load the number of bytes to display into DX.
+    call  cons_write_int
+    call  cons_write_crlf
+
+    movw  num_sectors, %bx      # Load the current_byte value into bx.
+    call  cons_write_int
+    call  cons_write_crlf
+
+    call   cons_write_crlf
+    movw   actual_num_sectors, %bx
+    call   cons_write_int
+    call   cons_write_crlf
 
     movw    $disk_address_packet, %si
     movb    $0x00, %ah                  # Set AH to 0x00 for INT 16h function (keyboard input).
     int     $0x16                       # Call INT 16h to wait for a key press.
-    jmp     read_sectors_loop
+    
+    ret
 
 
 cons_write_char:
@@ -383,8 +438,8 @@ cons_write_underscore:
     movb    $95, %al       # Otherwise, load ASCII code for underscore into AL
     call    cons_write_char   # Display the character in AL
 
-    decw   line_bytes                     # Decrement DX, counting down the number of bytes to display in this line.
-    inc    %di                      # Increment DI to move to the next byte in memory.
+    decw    line_bytes                     # Decrement DX, counting down the number of bytes to display in this line.
+    inc     %di                      # Increment DI to move to the next byte in memory.
 
     jmp     display_ascii_line_loop  # Repeat the loop
 
@@ -487,8 +542,10 @@ prompt_num_sectors: .string "Enter number of sectors (4 Digits): "
 prompt_no_input: .string "No input detected. Please try again: "
 prompt_current_sector: .string "Current sector: "
 IntBuffer:   .string "     "
-prompt_disk_error: .string "Disk read error occurred. Error code: "
+prompt_disk_error: .string "Please Restart. Disk read error with code:"
+prompt_empty_sector: .string "Empty Sector. Please try a different sector. "
 prompt_invalid_input: .string "Invalid input. Please try again."
+prompt_zero_amount: .string "Please enter a value greater than 0."
 prompt_continue: .string "Press any key to continue..."
 debug_msg: .string "Returned from input loop."
 prompt_finished: .string "Finished reading sectors."
@@ -499,6 +556,7 @@ current_byte: .word 0x0000
 byte_count: .word 0x0000  
 num_sectors: .word 0x0000 # Allocates 2 bytes, initialized to 0
 current_sector: .word 0x0000 # Allocates 2 bytes, initialized to 0
+actual_num_sectors: .word 0x0000 # Allocates 2 bytes, initialized to 0
 total_sectors: .word 0x0000 # Allocates 2 bytes, initialized to 0
 
 input_buffer: .space 5, 0
