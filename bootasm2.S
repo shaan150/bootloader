@@ -199,26 +199,15 @@ cons_write_sector:
     movw    $disk_address_packet, %si # Point %si to disk_address_packet
     ret
 
-read_max_sectors:
-    movw   num_sectors, %ax
-    movw   %ax, actual_num_sectors 
-    movw   $3, num_sectors
-
-
-read_sectors:
-    movw   num_sectors, %ax
-    cmpw   $127, %ax          # Compare the number of sectors to read with 127.
-    jg     read_max_sectors            # If greater or equal, jump to read_max_sectors to set the number of sectors to read to 127.
-
+read_sectors:         
     movw    start_sector, %bx          # Load the starting sector number into BX
     movw    num_sectors, %ax          # Add the starting sector to the number of sectors.
     addw    %bx, %ax                   # This gives the end sector number.
-    movw    %ax, total_sectors         # Store the calculated value (start sector + num sectors) into the total_sectors variable.
+    movw    %ax, final_sector         # Store the calculated value (start sector + num sectors) into the final_sector variable.
 
     xor     %bx, %bx                   # Clear BX register. BX is used later for addressing.
     movw    $256, byte_count            # Set byte_count to 64. This represents the number of bytes to process.
     movw    $16, line_bytes            # Set line_bytes to 16. This is likely the number of bytes per line to display.
-    movw    $0, current_byte           # Set current_byte to 0, starting the new sector.
     
     movw    start_sector, %ax          # Load the starting sector number into AX.
     movw    %ax, current_sector        # Store the starting sector number in current_sector.
@@ -229,10 +218,7 @@ read_sectors:
     
     movw    $0xD000, 4(%si)            # Set the memory address to read data into as 0xD000.
 
-    # call    debug
-
 read_sectors_loop:
-
 
     cmp     $0, byte_count             # Compare line bytes with 0 to check if the end of the line is reached.
     je      read_sectors_pause      # If equal, jump to read_sectors_continue to handle the next line.
@@ -254,7 +240,7 @@ read_sectors_loop:
     decw    line_bytes                 # Decrement the line_bytes counter, tracking the number of bytes left to display in the current line.
 
     #call    debug
-    jmp  display_line_content       # Call routine to display the line content.
+    jmp      display_line_content       # Call routine to display the line content.
 
 read_sectors_pause:
     movw    current_byte, %bx           # Load the value of 'current_byte' into BX.
@@ -274,8 +260,8 @@ read_sectors_pause:
 
 next_sector:
     movw    current_sector, %bx     # Load the current sector number into BX.
-    movw    total_sectors, %ax      # Load the total number of sectors into AX.
-    subw    $1, %ax                 # Subtract 1 from AX to calculate the end sector (total sectors - 1).
+    movw    final_sector, %ax      # Load the total number of sectors into AX.
+    subw    $1, %ax               # Subtract 1 from AX to get the number of sectors left to read.
     cmpw    %ax, %bx               # Compare the current sector with the end sector (start sector + number of sectors).
     je      read_sectors_done      # If the current sector is greater or equal, all sectors have been processed; jump to completion.
     
@@ -288,17 +274,24 @@ next_sector:
     jmp     read_sectors_pause      # Jump back to the main read sectors loop.
 
 read_sectors_done:
+    movw    $0, current_byte           # Set current_byte to 0, starting the new sector.
     call    cons_write_crlf             # Call routine to write a carriage return and line feed (CRLF) to the console.
     movw    $prompt_finished, %si       # Load the address of the 'prompt_finished' message into SI.
     call    cons_writeline              # Call routine to write the 'prompt_finished' message to the console.
     jmp     get_inputs              # Jump to read_continue to prompt the user to read more sectors.
 
-read_all_sectors:
-    movw    actual_num_sectors, %ax     # Load the number of sectors read into AX.
-    movw    %ax, num_sectors            # Store the number of sectors read into num_sectors.
+
+read_sectors_continue:
+    movw    $256, byte_count            # Set byte_count to 64. This represents the number of bytes to process.
+    movw    $16, line_bytes            # Set line_bytes to 16. This is likely the number of bytes per line to display.
+    movw    %ax, num_sectors
+    movw    current_sector, %bx
+    addw    %bx, %ax
+    addw    %ax, start_sector
+
+    movw    $0, current_byte
 
     jmp     read_sectors
-
 
 read_empty:
     xor     %si, %si               # Clear SI register.
@@ -392,6 +385,9 @@ endless_loop:                   # Loop forever more
 
 
 debug:
+
+    movw  $debug_msg, %si # Load the address of the 'debug_msg' string into SI.
+    call  cons_writeline       # Call the 'cons_writeline' routine to print the boot message.
     movw  line_bytes, %bx        # Load the number of bytes to display into DX.
     call  cons_write_int
     call  cons_write_crlf
@@ -408,11 +404,15 @@ debug:
     call  cons_write_int
     call  cons_write_crlf
 
-    movw  total_sectors, %bx        # Load the number of bytes to display into DX.
+    movw  final_sector, %bx        # Load the number of bytes to display into DX.
     call  cons_write_int
     call  cons_write_crlf
 
     movw  num_sectors, %bx      # Load the current_byte value into bx.
+    call  cons_write_int
+    call  cons_write_crlf
+
+    movw  start_sector, %bx      # Load the current_byte value into bx.
     call  cons_write_int
     call  cons_write_crlf
 
@@ -547,7 +547,7 @@ prompt_empty_sector: .string "Empty Sector. Please try a different sector. "
 prompt_invalid_input: .string "Invalid input. Please try again."
 prompt_zero_amount: .string "Please enter a value greater than 0."
 prompt_continue: .string "Press any key to continue..."
-debug_msg: .string "Returned from input loop."
+debug_msg: .string "Debug Mode."
 prompt_finished: .string "Finished reading sectors."
 
 start_sector: .word 0x0000 # Allocates 2 bytes, initialized to 0
@@ -557,7 +557,7 @@ byte_count: .word 0x0000
 num_sectors: .word 0x0000 # Allocates 2 bytes, initialized to 0
 current_sector: .word 0x0000 # Allocates 2 bytes, initialized to 0
 actual_num_sectors: .word 0x0000 # Allocates 2 bytes, initialized to 0
-total_sectors: .word 0x0000 # Allocates 2 bytes, initialized to 0
+final_sector: .word 0x0000 # Allocates 2 bytes, initialized to 0
 
 input_buffer: .space 5, 0
 max_input_amount: .byte 0
